@@ -1,0 +1,212 @@
+---
+title: "EDS 223 Week 5 lecture"
+author: "Haylee Oyler"
+execute:
+  warning: false
+  message: false
+format: html
+editor: source
+editor_options: 
+  chunk_output_type: console
+---
+
+# 1. Setup
+```{r}
+library(sf) # vector handling
+library(terra) # raster handling
+library(tidyverse)
+library(tmap) # map making
+library(spData) # spatial data
+library(spDataLarge) # spatial data
+library(viridisLite)
+```
+
+```{r}
+# load raster dataset
+elevation <- rast(system.file("raster/srtm.tif", package = "spDataLarge"))
+
+# load vector dataset
+boundary <- read_sf(system.file("vector/zion.gpkg", package = "spDataLarge"))
+```
+
+## Check to see if CRS matches
+```{r}
+if(crs(elevation) == crs(boundary)){
+  print("CRS Match!")
+} else {
+  warning("Update CRS to match")
+  boundary <- st_transform(boundary, st_crs(elevation))
+  # Can use an sf function on a raster object
+}
+```
+Terra and sf have some nice interplay between them
+
+```{r}
+tm_shape(elevation) +
+  tm_raster(title = "Elevation (meters)") +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(legend.outside = TRUE)
+
+```
+
+# 2. Raster Cropping
+```{r}
+# crop raster to extent of vector object
+elevation_cropped <- crop(elevation, boundary)
+
+tm_shape(elevation_cropped) +
+  tm_raster(title = "Elevation (meters)") +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(legend.outside = TRUE)
+# slightly zooms it in, no grid cells outside the grey border
+```
+
+
+```{r}
+# mask raster based on vector object
+# (cells outside of vector are converted to NA)
+elevation_masked <- mask(elevation, boundary)
+
+# crop and mask raster
+elevation_final <- mask(elevation_cropped, boundary)
+
+# mask raster based on vector object
+# (cells inside of vector are converted to NA)
+elevation_inv_masked <- mask(elevation_cropped, boundary, inverse = TRUE)
+```
+
+ Map all variations together...
+```{r}
+#| code-fold: true
+#| code-summary: "Reveal code"
+
+map1 <- tm_shape(elevation) +
+  tm_raster(legend.show = FALSE) +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(main.title = "original")
+
+map2 <- tm_shape(elevation_cropped) +
+  tm_raster(legend.show = FALSE) +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(main.title = "cropped")
+
+map3 <- tm_shape(elevation_masked) +
+  tm_raster(legend.show = FALSE) +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(main.title = "masked")
+
+map4 <- tm_shape(elevation_final) +
+  tm_raster(legend.show = FALSE) +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(main.title = "cropped & masked")
+
+map5 <- tm_shape(elevation_inv_masked) +
+  tm_raster(legend.show = FALSE) +
+tm_shape(boundary) +
+  tm_borders(lwd = 2) +
+tm_layout(main.title = "inverse mask")
+
+tmap_arrange(map1, map2, map3, map4, map5, nrow = 2)
+```
+
+# 3. Raster Vectorization
+```{r}
+# Masking to cells inside the park
+elevation_inside <- mask(elevation_cropped, boundary)
+
+# Create a mask based on the value of the cells
+elevation_mask <- elevation_inside # Create of copy of raster you already liked
+
+
+elevation_mask[elevation_mask < 2000] <- NA
+
+
+elevation_mask_poly <- as.polygons(elevation_mask) %>% 
+  st_as_sf()
+```
+
+```{r}
+#| code-fold: true
+#| code-summary: "Reveal code"
+
+map1 <- tm_shape(elevation_mask) +
+  tm_raster() +
+  tm_layout(legend.outside = TRUE,
+            main.title = "masked raster")
+
+map2 <- tm_shape(elevation_mask_poly) +
+  tm_polygons() +
+  tm_layout(main.title = "vectorized raster")
+
+tmap_arrange(map1, map2, nrow = 1)
+```
+
+### Bonus exercise
+```{r}
+data("zion_points", package = "spDataLarge")
+zion_points <- st_transform(zion_points, crs=st_crs(elevation))
+```
+
+```{r}
+# Points randomly around park
+tm_shape(elevation) +
+  tm_raster() +
+  tm_shape(boundary) +
+  tm_borders() +
+  tm_shape(zion_points) +
+  tm_symbols()
+```
+
+```{r}
+# Figure out elevation at each point
+pts_elevation <- terra::extract(elevation, zion_points)
+# Terra by default, assigned a number to each point (ID) and now we have the elevation at each point. BUT no longer attached to the points.
+
+# Column bind to bring them back together
+zion_points <- cbind(zion_points, pts_elevation)
+# sf object with geometries now has elevation attached to it (srtm)
+```
+
+Create a transect along the park to extract elevation along
+```{r}
+zion_transect <- cbind(c(-133.2, -112.9),
+                        c(37.45, 37.2)) %>% 
+  st_linestring() %>% 
+  st_sfc(crs = crs(elevation)) %>% 
+  st_sf(geometry = .)
+# Creating an object that's a line that goes across the park
+
+tm_shape(elevation) +
+  tm_raster()+
+  tm_shape(zion_transect) +
+  tm_lines()
+```
+
+```{r}
+zion_transect$id = 1:nrow(zion_transect) # generate an id for each row of the transect
+zion_transect <- st_segmentize(zion_transect, dfMaxLength = 250)
+# Segment the line
+zion_transect <- st_cast(zion_transect, "POINT")
+
+tm_shape(elevation) +
+  tm_raster()+
+  tm_shape(zion_transect) +
+  tm_symbols()
+```
+
+```{r}
+transect <- terra::extract(elevation, zion_transect)
+zion_transect <- cbind(zion_transect, transect)
+```
+
+```{r}
+ggplot(zion_transect, aes(x = ID, y = srtm)) +
+  geom_point()
+```
+
