@@ -203,6 +203,9 @@ tm_shape(elevation) +
 ```{r}
 transect <- terra::extract(elevation, zion_transect)
 zion_transect <- cbind(zion_transect, transect)
+# zion_transect <- zion_transect %>% 
+#   filter(!is.na(elevation))
+
 ```
 
 ```{r}
