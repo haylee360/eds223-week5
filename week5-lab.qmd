@@ -200,6 +200,7 @@ tm_shape(elevation) +
   tm_symbols()
 ```
 
+
 ```{r}
 transect <- terra::extract(elevation, zion_transect)
 zion_transect <- cbind(zion_transect, transect)
@@ -207,6 +208,7 @@ zion_transect <- cbind(zion_transect, transect)
 #   filter(!is.na(elevation))
 
 ```
+
 
 ```{r}
 ggplot(zion_transect, aes(x = ID, y = srtm)) +
